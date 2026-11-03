@@ -62,12 +62,17 @@ jobs:
 
 ### 公開先の接続情報
 
-呼び出し側リポジトリの「Settings → Environments → production」の Secrets に置く。
+全店が同じ Xserver アカウント（sv8445・pominc）なので、接続情報と鍵は1つを共通で使う。
 
-- `XSERVER_HOST`（例：sv〇〇〇〇.xserver.jp）
-- `XSERVER_USER`（サーバーID）
-- `XSERVER_PATH`（公開フォルダの絶対パス）
-- `XSERVER_SSH_KEY`（自動公開専用の鍵）
+**組織（pom-inc-jp）の Secrets に1回だけ置くもの**（Organization settings → Secrets and variables → Actions → New organization secret。使えるリポジトリは「Selected repositories」で各店を選ぶ）
+
+- `XSERVER_HOST`（sv8445.xserver.jp）
+- `XSERVER_USER`（pominc）
+- `XSERVER_SSH_KEY`（自動公開用の秘密鍵。チャットなどには貼らない）
+
+**公開フォルダ（`XSERVER_PATH`）は書かなくてよい。** 書かなければ `/home/<XSERVER_USER>/<リポジトリ名>/public_html/` に公開する（リポジトリ名をドメイン名にしているため）。別の場所に出したい店だけ、その店のリポジトリの環境 production に `XSERVER_PATH` を置く。形が `/home/〇〇/〇〇/public_html/` でないときは、間違って別の場所を消さないように止まる。
+
+店のリポジトリの環境 production に同じ名前の Secrets があると、そちらが優先される。組織にまとめたあとは、店ごとの古い Secrets は消しておく（どちらが使われているか分からなくならないように）。
 
 設定がないうちは、書き出しだけで終わる（失敗にはしない）。
 
