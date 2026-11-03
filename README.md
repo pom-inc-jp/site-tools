@@ -62,12 +62,12 @@ jobs:
 
 ### 公開先の接続情報
 
-全店が同じ Xserver アカウント（sv8445・pominc）なので、接続情報と鍵は1つを共通で使う。
+全店が同じ Xserver アカウントなので、接続情報と鍵は1つを共通で使う。
 
-**組織（pom-inc-jp）の Secrets に1回だけ置くもの**（Organization settings → Secrets and variables → Actions → New organization secret。使えるリポジトリは「Selected repositories」で各店を選ぶ）
+**組織（pom-inc-jp）の Secrets に1回だけ置くもの**（Organization settings → Secrets and variables → Actions → New organization secret。使えるリポジトリは「Selected repositories」で各店を選ぶ。無料プランでは公開リポジトリだけが組織の Secrets を使えるので、このリポジトリと各店のリポジトリは公開にしている）
 
-- `XSERVER_HOST`（sv8445.xserver.jp）
-- `XSERVER_USER`（pominc）
+- `XSERVER_HOST`（Xserver のホスト名。サーバーパネルの「サーバー情報」にある sv〇〇〇〇.xserver.jp）
+- `XSERVER_USER`（サーバーID）
 - `XSERVER_SSH_KEY`（自動公開用の秘密鍵。チャットなどには貼らない）
 
 **公開フォルダ（`XSERVER_PATH`）は書かなくてよい。** 書かなければ `/home/<XSERVER_USER>/<リポジトリ名>/public_html/` に公開する（リポジトリ名をドメイン名にしているため）。別の場所に出したい店だけ、その店のリポジトリの環境 production に `XSERVER_PATH` を置く。形が `/home/〇〇/〇〇/public_html/` でないときは、間違って別の場所を消さないように止まる。
