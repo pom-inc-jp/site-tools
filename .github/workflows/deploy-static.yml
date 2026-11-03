@@ -1,0 +1,136 @@
+# =================================================================
+# 店舗サイト共通の「書き出しと公開」（呼び出して使うワークフロー）
+#
+# 各店のリポジトリ（casse.cafe など）の .github/workflows/deploy.yml から呼ぶ。
+# やること
+#   1. node build.mjs で dist/ に書き出す
+#   2. 公開先（Xserver）の設定があれば、残すフォルダを調べ、試し（dry-run）の一覧を出す
+#   3. 反映してよいときだけ、rsync で公開フォルダを dist/ と同じにする
+#
+# 公開フォルダにある次のものは、どの店でも消さない・上書きしない
+#   ・名前が _movie_app で終わるフォルダ、movie/、movie_app/（店内iPadの動画など）
+#   ・反映の直前にサーバーを調べ、mp4 が入っているフォルダはすべて
+#   ・.well-known/（SSL証明書の更新に使う）
+#   ・呼び出し側の keep に書いたもの（店ごとのフォルダ）
+#
+# 公開先の接続情報は、呼び出し側リポジトリの環境 production の Secrets に置く
+#   XSERVER_HOST・XSERVER_USER・XSERVER_PATH・XSERVER_SSH_KEY
+#   （環境の Secrets は、このワークフローの environment: production から読まれる）
+# =================================================================
+name: 書き出しと公開（共通）
+
+on:
+  workflow_call:
+    inputs:
+      live:
+        description: '本番に切り替え済みか（true のときだけ、手動以外の実行でも反映する）'
+        type: boolean
+        default: false
+      mode:
+        description: 'auto（live に従う）／dry-run（一覧だけ）／deploy（この1回だけ反映）'
+        type: string
+        default: auto
+      keep:
+        description: '店ごとに残すフォルダ・ファイル（1行に1つ。rsync の除外の書き方。例：/casse_app/）'
+        type: string
+        default: ''
+      node-version:
+        type: string
+        default: '20'
+      build-command:
+        type: string
+        default: node build.mjs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: 書き出し
+        run: ${{ inputs.build-command }}
+
+      - name: 公開先の設定があるか確認
+        id: check
+        env:
+          XSERVER_HOST: ${{ secrets.XSERVER_HOST }}
+        run: |
+          if [ -z "$XSERVER_HOST" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "公開先（XSERVER_HOST など）が未設定のため、書き出しだけで終了します" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: SSH の準備
+        if: steps.check.outputs.ready == 'true'
+        env:
+          KEY: ${{ secrets.XSERVER_SSH_KEY }}
+          HOST: ${{ secrets.XSERVER_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p 10022 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 残すフォルダを調べる（mp4 が入っているフォルダ＋共通＋店ごと）
+        if: steps.check.outputs.ready == 'true'
+        env:
+          HOST: ${{ secrets.XSERVER_HOST }}
+          USER_: ${{ secrets.XSERVER_USER }}
+          DEST: ${{ secrets.XSERVER_PATH }}
+          KEEP: ${{ inputs.keep }}
+        run: |
+          set -o pipefail
+          # 公開フォルダ直下で、mp4 を含むフォルダ（直下に mp4 がある場合はそのファイル）を洗い出す
+          ssh -i ~/.ssh/deploy_key -p 10022 "$USER_@$HOST" \
+            "cd '$DEST' && find . -type f -iname '*.mp4' -printf '%P\n'" \
+            | awk -F/ '{ if (NF>1) print "/" $1 "/"; else print "/" $1 }' | sort -u > keep.txt
+          # どの店でも残すもの
+          printf '/movie/\n/movie_app/\n*_movie_app/\n/.well-known/\n' >> keep.txt
+          # 店ごとに残すもの（空行は飛ばす）
+          printf '%s\n' "$KEEP" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' >> keep.txt || true
+          sort -u keep.txt -o keep.txt
+          echo '--- 残すフォルダ ---'; cat keep.txt
+          {
+            echo "## 残すフォルダ・ファイル（消さない・上書きしない）"
+            echo '```'; cat keep.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 試し（dry-run）：変わるファイルと消えるファイルの一覧
+        if: steps.check.outputs.ready == 'true'
+        env:
+          HOST: ${{ secrets.XSERVER_HOST }}
+          USER_: ${{ secrets.XSERVER_USER }}
+          DEST: ${{ secrets.XSERVER_PATH }}
+        run: |
+          rsync -az --delete --dry-run --itemize-changes --exclude-from=keep.txt \
+            -e "ssh -i ~/.ssh/deploy_key -p 10022" dist/ "$USER_@$HOST:$DEST" > plan.txt
+          deleted=$(grep -c '^\*deleting' plan.txt || true)
+          {
+            echo "## 消えるファイル（${deleted}件）"
+            echo '```'; grep '^\*deleting' plan.txt | sed 's/^\*deleting *//' | head -n 500; echo '```'
+            echo "## 追加・更新されるファイル"
+            echo '```'; grep -v '^\*deleting' plan.txt | awk '{print $2}' | head -n 300; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat plan.txt
+
+      - name: 反映
+        if: >-
+          steps.check.outputs.ready == 'true' && (
+            inputs.mode == 'deploy' ||
+            (inputs.mode == 'auto' && inputs.live)
+          )
+        env:
+          HOST: ${{ secrets.XSERVER_HOST }}
+          USER_: ${{ secrets.XSERVER_USER }}
+          DEST: ${{ secrets.XSERVER_PATH }}
+        run: |
+          rsync -avz --delete --exclude-from=keep.txt \
+            -e "ssh -i ~/.ssh/deploy_key -p 10022" dist/ "$USER_@$HOST:$DEST"
+          echo "## 反映しました" >> "$GITHUB_STEP_SUMMARY"
