@@ -13,9 +13,12 @@
 #   ・.well-known/（SSL証明書の更新に使う）
 #   ・呼び出し側の keep に書いたもの（店ごとのフォルダ）
 #
-# 公開先の接続情報は、呼び出し側リポジトリの環境 production の Secrets に置く
-#   XSERVER_HOST・XSERVER_USER・XSERVER_PATH・XSERVER_SSH_KEY
-#   （環境の Secrets は、このワークフローの environment: production から読まれる）
+# 公開先の接続情報（Secrets）
+#   XSERVER_HOST・XSERVER_USER・XSERVER_SSH_KEY は、組織（pom-inc-jp）の Secrets に1回だけ置く。
+#   全店が同じ Xserver アカウントなので、鍵も1本を共通で使う。
+#   XSERVER_PATH（公開フォルダ）は書かなくてよい。書かなければ /home/<XSERVER_USER>/<リポジトリ名>/public_html/ にする
+#   （リポジトリ名＝ドメイン名にしているため）。違う場所に出す店だけ、その店の Secrets に XSERVER_PATH を置く。
+#   店のリポジトリの環境 production に同じ名前の Secrets があれば、そちらが優先される。
 # =================================================================
 name: 書き出しと公開（共通）
 
@@ -67,6 +70,29 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: 公開先のフォルダを決める
+        id: dest
+        if: steps.check.outputs.ready == 'true'
+        env:
+          USER_: ${{ secrets.XSERVER_USER }}
+          PATH_: ${{ secrets.XSERVER_PATH }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          if [ -n "$PATH_" ]; then
+            dest="$PATH_"
+          else
+            dest="/home/$USER_/$REPO/public_html/"
+          fi
+          # 末尾の / をそろえる（rsync で「フォルダの中身を同じにする」ため）
+          case "$dest" in */) ;; *) dest="$dest/" ;; esac
+          # 書き間違いで別の場所を消さないように、形を確かめてから使う
+          case "$dest" in
+            /home/*/public_html/) ;;
+            *) echo "公開先のフォルダの形が想定と違うため止めます（/home/〇〇/〇〇/public_html/ の形にしてください）"; exit 1 ;;
+          esac
+          echo "dest=$dest" >> "$GITHUB_OUTPUT"
+          echo "公開先：$REPO の public_html（XSERVER_PATH ${PATH_:+指定あり}${PATH_:-の指定なし。リポジトリ名から自動}）" >> "$GITHUB_STEP_SUMMARY"
+
       - name: SSH の準備
         if: steps.check.outputs.ready == 'true'
         env:
@@ -83,7 +109,7 @@ jobs:
         env:
           HOST: ${{ secrets.XSERVER_HOST }}
           USER_: ${{ secrets.XSERVER_USER }}
-          DEST: ${{ secrets.XSERVER_PATH }}
+          DEST: ${{ steps.dest.outputs.dest }}
           KEEP: ${{ inputs.keep }}
         run: |
           set -o pipefail
@@ -107,7 +133,7 @@ jobs:
         env:
           HOST: ${{ secrets.XSERVER_HOST }}
           USER_: ${{ secrets.XSERVER_USER }}
-          DEST: ${{ secrets.XSERVER_PATH }}
+          DEST: ${{ steps.dest.outputs.dest }}
         run: |
           rsync -az --delete --dry-run --itemize-changes --exclude-from=keep.txt \
             -e "ssh -i ~/.ssh/deploy_key -p 10022" dist/ "$USER_@$HOST:$DEST" > plan.txt
@@ -129,7 +155,7 @@ jobs:
         env:
           HOST: ${{ secrets.XSERVER_HOST }}
           USER_: ${{ secrets.XSERVER_USER }}
-          DEST: ${{ secrets.XSERVER_PATH }}
+          DEST: ${{ steps.dest.outputs.dest }}
         run: |
           rsync -avz --delete --exclude-from=keep.txt \
             -e "ssh -i ~/.ssh/deploy_key -p 10022" dist/ "$USER_@$HOST:$DEST"
