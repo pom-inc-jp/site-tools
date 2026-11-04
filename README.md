@@ -76,9 +76,9 @@ jobs:
 
 設定がないうちは、書き出しだけで終わる（失敗にはしない）。
 
-### 使えるようにする設定（一度だけ）
+### 使えるようにする設定
 
-このリポジトリは非公開なので、「Settings → Actions → General → Access」で「Accessible from repositories in the 'pom-inc-jp' organization」を選んでおく。
+このリポジトリは公開しているので、各店のリポジトリから追加の設定なしで呼び出せる。もし非公開に戻す場合は、「Settings → Actions → General → Access」で「Accessible from repositories in the 'pom-inc-jp' organization」を選ぶ（その場合、無料プランでは組織の Secrets も使えなくなる）。
 
 ## 変えるとき
 
@@ -90,6 +90,9 @@ jobs:
 
 | 店 | リポジトリ | 状態 |
 | --- | --- | --- |
-| CASSE | pom-inc-jp/casse.cafe | 共通版を使う（2026年11月〜） |
-| RETOPO | pom-inc-jp/retopo.cafe | まだ自前のワークフロー。CASSEで問題ないことを確かめてから切り替える |
-| Selphoto Studio | pom-inc-jp/selphoto.studio | 同上 |
+| CASSE | pom-inc-jp/casse.cafe（公開） | 共通版を使う（2026年11月〜）。接続情報は組織の Secrets |
+| RETOPO | pom-inc-jp/retopo.cafe（非公開） | 自前のワークフロー（中身は同じ考え方）。非公開のため組織の Secrets が使えず、環境 production の Secrets を使う |
+| Selphoto Studio | pom-inc-jp/selphoto.studio（非公開） | 同上。`/lp/` からトップへの入れ替えなど独自の処理があるので、切り替えるときは入力を足す必要がある |
+| RECOCO | pom-inc-jp/recoco.cafe（公開） | 作業中。使うかどうかは recoco.cafe 側の README を参照 |
+
+RETOPO・Selphoto を共通版に切り替えるには、リポジトリを公開にする（組織の Secrets を使うため）か、店ごとの環境 production の Secrets のまま `secrets: inherit` で呼び出す。どちらにするかは未定。
